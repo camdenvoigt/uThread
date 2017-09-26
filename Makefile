@@ -7,7 +7,7 @@ OBJ = main.o uThread.o
 	$(CC) -c -o $@ $< $(CFLAGS)
 
 uThread: $(OBJ)
-	$(CC) -o $@ $^ $(CFLAGS)
+	$(CC) -o -pthread $@ $^ $(CFLAGS)
 
 debug: $(OBJ)
 	$(CC) -o $@ $^ $(CFLAGS) -g

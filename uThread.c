@@ -1,9 +1,3 @@
-
-/*
- * 	many2many mapping: 
- * 	the library provides untread_init, uthread_create, uthread_yield and uthread_exit 
-*/
-
 #define _GNU_SOURCE
 #include <sched.h>
 #include <stdio.h>
@@ -15,62 +9,7 @@
 #include <sys/syscall.h>
 #include <sys/time.h>
 
-//declare the functions provided by the thread library 
-int  uthread_init(int maxNumKernelThreads);
-int  uthread_create(void (*fn)());
-void uthread_exit();
-int  uthread_yield();
-
-/**** Application code ****/
-
-void th1()
-{
-	int i;
-	for(i=0;i<6;i++){
-		printf("Thread 1: run.\n");
-		sleep(1);
-		printf("Thread 1: yield.\n");
-		uthread_yield();
-	}
-	printf("Thread 1: exit.\n");
-	uthread_exit();
-}
-
-void th2()
-{
-	int i;
-	for(i=0;i<6;i++){
-		printf("Thread 2: run.\n");
-		sleep(1);
-		printf("Thread 2: yield.\n");
-		uthread_yield();
-	}
-	printf("Thread 2: exit.\n");
-	uthread_exit();
-}
-
-void th3()
-{
-	int i;
-	for(i=0;i<3;i++){
-		printf("Thread 3: run.\n");
-		sleep(2);
-		printf("Thread 3: yield.\n");
-		uthread_yield();
-	}
-	printf("Thread 3: exit.\n");
-	uthread_exit();
-}
-
-int main()
-{
-	uthread_init(1);
-	uthread_create(th1);
-	uthread_create(th2);
-	uthread_create(th3);
-	uthread_exit();
-}
-
+#include "uThread.h"
 
 /**** Thread library code ****/
 
@@ -172,15 +111,7 @@ void enQueue(struct thread_info *record)
 	}
 }
 
-
-/* 
-	This function has to be called before any other functions of the uthread library can be called. 
-	It initializes the uthread system and specifies the maximum number of kernel threads to be argument numKernelThreads. 
-	For example, it may establish and initialize a priority ready queue of user-level threads 
-	(with the amount of time each user-level thread has been mapped to kernel threads as priority number) 
-	and other data structures. 
-*/
-int uthread_init(int maxNumKernelThreads)
+void uthread_init(int maxNumKernelThreads)
 {
 	int i;
 
@@ -191,6 +122,7 @@ int uthread_init(int maxNumKernelThreads)
 	curNumKThs = 1;
 
 	/* initialie all threads with state 0 and id -1 */
+	printf("%d", maxNumKThs);
 	for(i = 0; i < maxNumKThs; i++){
 		kthInfo[i].state = 0; //not in use
 		kthInfo[i].kthID = -1;
@@ -215,14 +147,6 @@ int uthread_init(int maxNumKernelThreads)
 	printf("uthread_init: exit\n");
 }
 
-
-/* 
-	The calling thread requests the thread library to create a new user-level thread that runs the function func(), 
-	which is specified as the argument of this function. At the time when this function is called, if less than 
-	numKernelThreads kernel threads have been active, a new kernel thread is created to execute function func();
-	 otherwise, a context of a new user-level thread should be properly created and stored on the priority ready queue. 
-	 This function returns 0 if succeeds, or -1 otherwise. 
-*/
 int uthread_create(void (*func)())
 {
 	int i;
@@ -347,11 +271,6 @@ int uthread_create(void (*func)())
 	return 0;
 }
 
-/*
-	This function is called when the calling user-level thread terminates its execution. 
-	In response to this call, if no ready user-level thread in the system, the whole process terminates; 
-	otherwise, a ready user thread with the highest priority should be mapped to the kernel thread to run.
-*/
 void uthread_exit()
 {
 	int i;
@@ -402,12 +321,6 @@ void uthread_exit()
 	setcontext(th->ucp);
 }
 
-/*
-	The calling thread requests to yield the kernel thread to another user-level thread with the same or higher priority
-	(note: the priority is based on the time a thread has been mapped to kernel threads). If each ready thread has lower
-	priority than this calling thread, the calling thread will continue its running; otherwise, the kernel thread is yielded 
-	to a ready thread with the highest priority.
-*/
 int uthread_yield()
 {
 	int tid;
@@ -417,7 +330,7 @@ int uthread_yield()
 	/* Waiting so only one thread can enter the critical section */
 	sem_wait(&queueMutex);
 
-	printf("uthread_yield: 1\n");
+	//printf("uthread_yield: 1\n");
 
 	/* if there is nothing to dequeue then release control and return */
 	if(head == NULL){ 
@@ -428,12 +341,12 @@ int uthread_yield()
 		return 0;
 	}
 
-	printf("uthread_yield: 2\n");
+	//printf("uthread_yield: 2\n");
 
 	/* get runtime of the head of the queue */
 	unsigned long headRunTime=head->runTime;
 
-	printf("uthread_yield: 3\n");
+	//printf("uthread_yield: 3\n");
 
 	/* get thread id of current thread from system call */
 	pid_t ttid = syscall(SYS_gettid);
@@ -454,15 +367,15 @@ int uthread_yield()
 		return -1;
 	}
 
-	printf("uthread_yield: 4\n");
+	//printf("uthread_yield: 4\n");
 
 	/* update the runtime of current thread */
 	unsigned long runTime = kthInfo[tid].runTime + elapseTime(kthInfo[tid].startTime);
 
-	printf("uthread_yield: 5\n");
+	//printf("uthread_yield: 5\n");
 
 	/* 
-		if runtime from queue is greater than current runtime don't yeild. 
+		if runtime from queue is greater than current runtime don't yield. 
 		release control and return. 
 	*/
 	if(headRunTime > runTime){
@@ -473,7 +386,7 @@ int uthread_yield()
 		return 0;
 	} 
 
-	printf("uthread_yield: 6\n");
+	//printf("uthread_yield: 6\n");
 
 	/* construct queue thread object for current thread */
 
@@ -495,13 +408,13 @@ int uthread_yield()
 	/* set object's runtime */
 	th->runTime=runTime;
 
-	printf("uthread_yield: 7\n");
+	//printf("uthread_yield: 7\n");
 
 
 	/* enqueue the thread object */
 	enQueue(th);
 
-	printf("uthread_yield: 8\n");
+	//printf("uthread_yield: 8\n");
 
 	/* swap head of queue into tidth kernal thread with dequeued thread */
 	struct thread_info *th1;
@@ -509,12 +422,12 @@ int uthread_yield()
 	kthInfo[tid].runTime=th1->runTime;
 	gettimeofday(&kthInfo[tid].startTime,NULL);
 
-	printf("uthread_yield: 9\n");
+	//printf("uthread_yield: 9\n");
 
 	/* release control so waiting thread can execute */
 	sem_post(&queueMutex);
 
-	printf("uthread_yield: exit 3\n");
+	//printf("uthread_yield: exit 3\n");
 
 	/* swap th1 context with th context */
 	swapcontext(th->ucp, th1->ucp);

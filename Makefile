@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -I.
+CFLAGS = -I. -pthread
 DEPS = uThread.h
 OBJ = main.o uThread.o
 
@@ -7,7 +7,7 @@ OBJ = main.o uThread.o
 	$(CC) -c -o $@ $< $(CFLAGS)
 
 uThread: $(OBJ)
-	$(CC) -o -pthread $@ $^ $(CFLAGS)
+	$(CC) -o $@ $^ $(CFLAGS)
 
 debug: $(OBJ)
 	$(CC) -o $@ $^ $(CFLAGS) -g

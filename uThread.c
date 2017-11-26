@@ -406,7 +406,7 @@ int uthread_yield()
 	}
 
 	/* set object's runtime */
-	th->runTime=runTime;
+	th->runTime = runTime;
 
 	//printf("uthread_yield: 7\n");
 

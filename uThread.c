@@ -8,27 +8,31 @@
 #include <sys/types.h> //gettid()
 #include <sys/syscall.h>
 #include <sys/time.h>
+#include <time.h>
 
 #include "uThread.h"
 
 /**** Thread library code ****/
 
-#define STACK_SIZE 16384
+#define STACK_SIZE_BASE 16384
 
 //semaphore used in the library code
-sem_t queueMutex; 
+sem_t queueMutex;
 
 //max and current number of kernel threads
 #define MAX_KTHS 10
 int maxNumKThs;
 int curNumKThs;
 
-//info about threads that are running 
+
+int offset; //the offset size which will be added to the STACK_SIZE_BASE
+
+//info about threads that are running
 struct kth_info{
-	int  state; //0-not used, 1-valid 
+	int  state; //0-not used, 1-valid
     pid_t kthID;
 	unsigned long runTime;
-	struct timeval	startTime; //the most recent time when this thread was mapped to a kernel thread 
+	struct timeval	startTime; //the most recent time when this thread was mapped to a kernel thread
 };
 struct kth_info kthInfo[MAX_KTHS];
 
@@ -36,7 +40,7 @@ struct kth_info kthInfo[MAX_KTHS];
 struct thread_info{
 	ucontext_t 		*ucp;
 	struct thread_info 	*next;
-	unsigned long 		runTime; 
+	unsigned long 		runTime;
 };
 struct thread_info *head=NULL, *tail=NULL;
 
@@ -55,7 +59,7 @@ int compareTime(struct timeval v1, struct timeval v2)
 		return -1;
 	} else {
 		return 0;
-	} 
+	}
 }
 
 /* gets the elapsed time of a record in milliseconds */
@@ -66,7 +70,7 @@ unsigned long elapseTime(struct timeval v)
 	gettimeofday(&v1,NULL);
 	unsigned long t2=1000000 * v1.tv_sec + v1.tv_usec;
 	return t2-t1;
-} 
+}
 
 /* takes object form the front of the queue */
 struct thread_info *deQueue()
@@ -77,7 +81,7 @@ struct thread_info *deQueue()
 	if(head==NULL) tail=NULL;
 	return p;
 }
-	
+
 /* adds record into the priority queue based on runTime of the record*/
 void enQueue(struct thread_info *record)
 {
@@ -105,15 +109,27 @@ void enQueue(struct thread_info *record)
 		tail->next=record;
 		tail=record;
 	}else{
-		//i.e., cur->runTime>runtime ==> insert before cur 
+		//i.e., cur->runTime>runtime ==> insert before cur
 		record->next=cur;
 		pre->next=record;
 	}
 }
 
-void uthread_init(int maxNumKernelThreads)
+int uthread_init(int maxNumKernelThreads)
 {
+	if(maxNumKernelThreads > 10 || maxNumKernelThreads < 0) {
+			printf("invalid number of max threads\n");
+		return -1;
+	}
+
 	int i;
+
+	//generate a random offset between 0-1023 so that the size of the stack
+	//differs between runs. This is done to amke it more difficult to
+	//manipulate exact memory in other threads
+	int seed = time(NULL);
+    srand(seed);
+	offset = rand() % 1024;
 
 	printf("uthread_init: enter\n");
 
@@ -128,15 +144,15 @@ void uthread_init(int maxNumKernelThreads)
 		kthInfo[i].kthID = -1;
 	}
 
-	/* 
-		initialize the library's main thread 
+	/*
+		initialize the library's main thread
 		state = 1 means the thread is active
 		gets the thread id from system call
 	*/
 	kthInfo[0].state = 1;
 	kthInfo[0].kthID = syscall(SYS_gettid);
 
-	/* 
+	/*
 		init semaphore named queueMutex
 		semeaphore pointer defined above
 		0 means semaphore isn't shared between processes
@@ -161,18 +177,18 @@ int uthread_create(void (*func)())
 		//A new kernel thread can be started immediately
 
 		void *child_stack;
-        child_stack=(void *)malloc(STACK_SIZE);
+		child_stack=(void *)malloc(STACK_SIZE_BASE + offset);
 
         /* failed to allocate heap memory */
 		if(child_stack==NULL) {
 			printf("Fail to allocate heap space for child_stack.\n");
 			sem_post(&queueMutex);
 			return -1;
-		} 
+		}
 
 		/* move child_stack pointer to end of child_stack memory */
-		child_stack += STACK_SIZE - 1;
-		
+		child_stack += STACK_SIZE_BASE + offset - 1;
+
 		/* create a function pointer that returns an int and takes a void function pointer as an argument*/
 		int (*kfunc)(void *arg);
 
@@ -181,9 +197,9 @@ int uthread_create(void (*func)())
 
 		/*
 			Creating the new thread that runs kfunc at the start of execution
-			and uses child_stack as it's stack memory. 
+			and uses child_stack as it's stack memory.
 			NOTE: Threads grow downward in linux hence why we passed in the topmost space of the stack.
-			Flags 
+			Flags
 				- CLONE_VM makes new process run in same memory space
 				- CLONE_FILES share same file descriptor table
 		*/
@@ -208,13 +224,13 @@ int uthread_create(void (*func)())
 			printf("No available kthInfo record is found - something wrong!\n");
 			sem_post(&queueMutex);
 			return -1;
-		} 
+		}
 
 		/* set the thread id */
 		kthInfo[i].kthID = tid;
 
 		printf("i=%d, tid=%d\n", i, tid);
- 
+
  		/* set start values for the thread */
 		gettimeofday(&kthInfo[i].startTime, NULL);
 		kthInfo[i].runTime = 0;
@@ -245,13 +261,15 @@ int uthread_create(void (*func)())
 		getcontext(th->ucp); //initialize the context structure
 
 		/* initalize and alloc the stack space for the thread's context */
-		th->ucp->uc_stack.ss_sp = (void *)malloc(STACK_SIZE);
+		th->ucp->uc_stack.ss_sp = (void *)malloc(STACK_SIZE_BASE + offset);
 		if(th->ucp->uc_stack.ss_sp == NULL){
 	        printf("Fail to allocate space for th->ucp->uc_stack.ss_sp.\n");
 	        sem_post(&queueMutex);
 	        return -1;
         }
-		th->ucp->uc_stack.ss_size = STACK_SIZE;
+
+		printf("offset check %d\n", offset);
+		th->ucp->uc_stack.ss_size = (STACK_SIZE_BASE + offset);
 
 		makecontext(th->ucp, func, 0); //make the context for a thread running func
 
@@ -301,7 +319,7 @@ void uthread_exit()
 	/* exit process if queue is empty */
 	if(head == NULL) {
 		sem_post(&queueMutex);
-		exit(0); //no more thread to run so terminate 
+		exit(0); //no more thread to run so terminate
 	}
 
 	/* pick up the thread record at the front of the queue */
@@ -319,6 +337,7 @@ void uthread_exit()
 
 	//set the context of the picked thread as the concurrent thread (i.e., run it!)
 	setcontext(th->ucp);
+
 }
 
 int uthread_yield()
@@ -333,7 +352,7 @@ int uthread_yield()
 	//printf("uthread_yield: 1\n");
 
 	/* if there is nothing to dequeue then release control and return */
-	if(head == NULL){ 
+	if(head == NULL){
 		sem_post(&queueMutex);
 
 		printf("uthread_yield: exit 1\n");
@@ -374,9 +393,9 @@ int uthread_yield()
 
 	//printf("uthread_yield: 5\n");
 
-	/* 
-		if runtime from queue is greater than current runtime don't yield. 
-		release control and return. 
+	/*
+		if runtime from queue is greater than current runtime don't yield.
+		release control and return.
 	*/
 	if(headRunTime > runTime){
 		sem_post(&queueMutex);
@@ -384,19 +403,19 @@ int uthread_yield()
 		printf("uthread_yield: exit 2\n");
 
 		return 0;
-	} 
+	}
 
 	//printf("uthread_yield: 6\n");
 
 	/* construct queue thread object for current thread */
 
 	/* create and allocate a thread_info object */
-	struct thread_info *th; 
+	struct thread_info *th;
 	th = (struct thread_info *)malloc(sizeof(struct thread_info));
 	if(th == NULL){
 		printf("Fail to allocate space for th.\n");
 		return -1;
-	} 
+	}
 
 	/* initalize and alloc space for th's context */
 	th->ucp=(ucontext_t *)malloc(sizeof(ucontext_t));
@@ -434,4 +453,3 @@ int uthread_yield()
 
 	return 0;
 }
-

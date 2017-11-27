@@ -1,19 +1,19 @@
 CC = gcc
 CFLAGS = -I. -pthread -fstack-protector-all
 DEPS = uThread.h
-OBJ = main.o uThread.o
+OBJ = main.o memoryleaks.o bufferoverflow.o uThread.o
 
 %.o: %.c $(DEPS)
 	$(CC) -c -o $@ $< $(CFLAGS)
 
-uThread: main.o uThread.o
+main: main.o uThread.o
 	$(CC) -o $@ $^ $(CFLAGS)
 
 memleaks: memoryleaks.o uThread.o
 	$(CC) -o $@ $^ $(CFLAGS) -g
 
-debug: $(OBJ)
+bufferoverflow: bufferoverflow.o uThread.o
 	$(CC) -o $@ $^ $(CFLAGS) -g
 
 clean:
-	rm uThread debug $(OBJ)
+	rm uThread memleaks bufferoverflow $(OBJ)

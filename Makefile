@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -I. -pthread
+CFLAGS = -I. -pthread -fstack-protector-all
 DEPS = uThread.h
 OBJ = main.o uThread.o
 
@@ -15,5 +15,5 @@ memleaks: memoryleaks.o uThread.o
 debug: $(OBJ)
 	$(CC) -o $@ $^ $(CFLAGS) -g
 
-clean: 
+clean:
 	rm uThread debug $(OBJ)

@@ -45,9 +45,9 @@ void th3()
 
 int main()
 {
-	uthread_init(1);
+	uthread_init(2);
 	uthread_create(th1);
 	uthread_create(th2);
-	uthread_create(th3);
+	// uthread_create(th3);
 	uthread_exit();
 }

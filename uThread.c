@@ -23,15 +23,6 @@ sem_t queueMutex;
 int maxNumKThs;
 int curNumKThs;
 
-//info about threads that are running 
-struct kth_info{
-	int  state; //0-not used, 1-valid 
-    pid_t kthID;
-	unsigned long runTime;
-	struct timeval	startTime; //the most recent time when this thread was mapped to a kernel thread 
-};
-struct kth_info kthInfo[MAX_KTHS];
-
 //define a queue of ready thread records
 struct thread_info{
 	ucontext_t 		*ucp;
@@ -39,6 +30,17 @@ struct thread_info{
 	unsigned long 		runTime; 
 };
 struct thread_info *head=NULL, *tail=NULL;
+
+//info about threads that are running 
+struct kth_info{
+	int  state; //0-not used, 1-valid 
+    pid_t kthID;
+    struct thread_info *th;
+	unsigned long runTime;
+	struct timeval	startTime; //the most recent time when this thread was mapped to a kernel thread 
+};
+struct kth_info kthInfo[MAX_KTHS];
+
 
 //help functions
 
@@ -111,6 +113,12 @@ void enQueue(struct thread_info *record)
 	}
 }
 
+void thread_info_destroy(struct thread_info * th) {
+	free(th->ucp->uc_stack.ss_sp);
+	free(th->ucp);
+	free(th);
+}
+
 void uthread_init(int maxNumKernelThreads)
 {
 	int i;
@@ -135,6 +143,7 @@ void uthread_init(int maxNumKernelThreads)
 	*/
 	kthInfo[0].state = 1;
 	kthInfo[0].kthID = syscall(SYS_gettid);
+	kthInfo[0].th = NULL;
 
 	/* 
 		init semaphore named queueMutex
@@ -296,6 +305,10 @@ void uthread_exit()
 		return;
 	}
 
+	if(kthInfo[i].th != NULL) {
+		thread_info_destroy(kthInfo[i].th);
+	}
+
 	struct thread_info *th;
 
 	/* exit process if queue is empty */
@@ -311,6 +324,7 @@ void uthread_exit()
 	kthInfo[i].state = 1;
 	kthInfo[i].runTime = th->runTime;
 	gettimeofday(&kthInfo[i].startTime, NULL);
+	kthInfo[i].th = th;
 
 	/* release control so waiting thread can execute */
 	sem_post(&queueMutex);
@@ -330,8 +344,6 @@ int uthread_yield()
 	/* Waiting so only one thread can enter the critical section */
 	sem_wait(&queueMutex);
 
-	//printf("uthread_yield: 1\n");
-
 	/* if there is nothing to dequeue then release control and return */
 	if(head == NULL){ 
 		sem_post(&queueMutex);
@@ -341,12 +353,8 @@ int uthread_yield()
 		return 0;
 	}
 
-	//printf("uthread_yield: 2\n");
-
 	/* get runtime of the head of the queue */
 	unsigned long headRunTime=head->runTime;
-
-	//printf("uthread_yield: 3\n");
 
 	/* get thread id of current thread from system call */
 	pid_t ttid = syscall(SYS_gettid);
@@ -362,17 +370,13 @@ int uthread_yield()
 	}
 
 	/* Error if can't find thread */
-	if(tid == maxNumKThs){
+	if(tid == maxNumKThs) {
 		printf("Fail to find kthInfo record. Something is wrong!\n");
 		return -1;
 	}
 
-	//printf("uthread_yield: 4\n");
-
 	/* update the runtime of current thread */
 	unsigned long runTime = kthInfo[tid].runTime + elapseTime(kthInfo[tid].startTime);
-
-	//printf("uthread_yield: 5\n");
 
 	/* 
 		if runtime from queue is greater than current runtime don't yield. 
@@ -386,48 +390,46 @@ int uthread_yield()
 		return 0;
 	} 
 
-	//printf("uthread_yield: 6\n");
-
 	/* construct queue thread object for current thread */
 
 	/* create and allocate a thread_info object */
 	struct thread_info *th; 
-	th = (struct thread_info *)malloc(sizeof(struct thread_info));
-	if(th == NULL){
-		printf("Fail to allocate space for th.\n");
-		return -1;
-	} 
 
-	/* initalize and alloc space for th's context */
-	th->ucp=(ucontext_t *)malloc(sizeof(ucontext_t));
-	if(th->ucp==NULL){
-		printf("Fail to allocate space for th->ucp.\n");
-		return -1;
+	if(kthInfo[tid].th == NULL) {
+		/* initalize and alloc space for thread info object*/
+		th = (struct thread_info *)malloc(sizeof(struct thread_info));
+		if(th == NULL){
+			printf("Fail to allocate space for th.\n");
+			return -1;
+		} 
+
+		/* initalize and alloc space for th's context */
+		th->ucp=(ucontext_t *)malloc(sizeof(ucontext_t));
+		if(th->ucp==NULL){
+			printf("Fail to allocate space for th->ucp.\n");
+			return -1;
+		}
+
+		/* set object's runtime */
+		th->runTime = runTime;
+		kthInfo[tid].th = th;
+	} else {
+		th = kthInfo[tid].th;
+		th->runTime = runTime;
 	}
-
-	/* set object's runtime */
-	th->runTime = runTime;
-
-	//printf("uthread_yield: 7\n");
-
 
 	/* enqueue the thread object */
 	enQueue(th);
-
-	//printf("uthread_yield: 8\n");
 
 	/* swap head of queue into tidth kernal thread with dequeued thread */
 	struct thread_info *th1;
 	th1=deQueue();
 	kthInfo[tid].runTime=th1->runTime;
-	gettimeofday(&kthInfo[tid].startTime,NULL);
-
-	//printf("uthread_yield: 9\n");
+	kthInfo[tid].th = th1;
+	gettimeofday(&kthInfo[tid].startTime, NULL);
 
 	/* release control so waiting thread can execute */
 	sem_post(&queueMutex);
-
-	//printf("uthread_yield: exit 3\n");
 
 	/* swap th1 context with th context */
 	swapcontext(th->ucp, th1->ucp);

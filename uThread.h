@@ -6,6 +6,7 @@
  * 	the library provides untread_init, uthread_create, uthread_yield and uthread_exit
 */
 
+/* THREAD FUNCTIONS */
 
 /*
 	This function has to be called before any other functions of the uthread library can be called.
@@ -39,5 +40,31 @@ void uthread_exit();
 	to a ready thread with the highest priority.
 */
 int uthread_yield();
+
+/* KEY FUNCTIONS */
+
+/*
+	Structure that represents a key for a thread safe value
+*/
+typedef struct uthread_key {
+	void* value;
+	struct uthread_key *refKey;
+} uthread_key_t;
+
+
+/*
+	Attach a key to every thread value for each thread is set to NULL
+*/
+void uthread_key_create(uthread_key_t *key);
+
+/*
+	Retrives the value assoicated with the given key for the current thread.
+*/
+void* uthread_get_key(uthread_key_t *key);
+
+/*
+	Sets the value assoicated witht he given key for the current thread.
+*/
+int uthread_set_key(uthread_key_t *key, void *value);
 
 #endif

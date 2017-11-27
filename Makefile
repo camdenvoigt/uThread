@@ -9,7 +9,7 @@ OBJ = main.o memoryleaks.o bufferoverflow.o threadsafe.o uThread.o
 main: main.o uThread.o
 	$(CC) -o $@ $^ $(CFLAGS)
 
-memleaks: memoryleaks.o uThread.o
+memoryleaks: memoryleaks.o uThread.o
 	$(CC) -o $@ $^ $(CFLAGS) -g
 
 bufferoverflow: bufferoverflow.o uThread.o

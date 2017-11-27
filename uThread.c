@@ -12,7 +12,9 @@
 
 #include "uThread.h"
 
-/**** Thread library code ****/
+/**** THREAD LIBRARY CODE ****/
+
+/* VARIABLES, MACROS, AND STRUCTS */
 
 #define STACK_SIZE_BASE 16384
 
@@ -25,10 +27,13 @@ int maxNumKThs;
 int curNumKThs;
 int offset; //the offset size which will be added to the STACK_SIZE_BASE
 
-struct thread_info{
+uthread_key_t* refKeys[10];
+
+struct thread_info {
 	ucontext_t 		*ucp;
 	struct thread_info 	*next;
 	unsigned long 		runTime; 
+	uthread_key_t *key;
 };
 struct thread_info *head=NULL, *tail=NULL;
 
@@ -37,12 +42,111 @@ struct kth_info{
 	int  state; //0-not used, 1-valid
     pid_t kthID;
     struct thread_info *th;
+    uthread_key_t *key;
 	unsigned long runTime;
 	struct timeval	startTime; //the most recent time when this thread was mapped to a kernel thread
 };
 struct kth_info kthInfo[MAX_KTHS];
 
-//help functions
+/* KEY FUNCTIONS */
+
+/*
+	creates a copy of the given key so that each thread can have its own copy. 
+*/
+uthread_key_t* copykey(uthread_key_t *key) {
+	uthread_key_t *newKey = (uthread_key_t*)malloc(sizeof(uthread_key_t));
+	newKey->value = NULL;
+	newKey->refKey = key;
+	return newKey;
+}
+
+/*
+	Attach a key to every thread value for each thread is set to NULL
+*/
+void uthread_key_create(uthread_key_t *key) {
+	int i;
+	struct thread_info *cur;
+
+	// Add a copy of the key to all running threads
+	for(i = 0; i < maxNumKThs; i++) {
+		uthread_key_t* ckey = copykey(key);
+		if(kthInfo[i].th != NULL) {
+			kthInfo[i].th->key = ckey;
+		}
+		kthInfo[i].key = ckey;
+	}
+
+	// Add a key to all threads waiting in the queue
+	if(head != NULL) {
+		cur = head;
+		cur->key->refKey = key;
+		while(cur->next) {
+			cur->key->refKey = key;
+		}
+	}
+
+	// Save the key so it can be added to future threads
+	refKeys[0] = key;
+}
+
+/*
+	Sets the value assoicated witht he given key for the current thread.
+*/
+int uthread_set_key(uthread_key_t *key, void *value) {
+	int i;
+
+	// Get the thread id
+	pid_t tid = syscall(SYS_gettid);
+
+
+	for (i = 0; i < maxNumKThs; i++) {
+		if(kthInfo[i].kthID == tid) {
+			break;
+		}
+	}
+
+	if (i == maxNumKThs) {
+		printf("uthread_set_key ERROR: Could not find current thread\n");
+		return -1;
+	}
+
+	if (kthInfo[i].key->refKey != key) {
+		printf("uthread_set_key ERROR: Incorrect Key\n");
+		return -2;
+	}
+
+	kthInfo[i].key->value = value;
+	return 0;
+}
+
+/*
+	Retrives the value assoicated with the given key for the current thread.
+*/
+void* uthread_get_key(uthread_key_t *key) {
+	pid_t tid = syscall(SYS_gettid);
+	int i;
+
+	for (i = 0; i < maxNumKThs; i++) {
+		if(kthInfo[i].kthID == tid) {
+			break;
+		}
+	}
+
+	if (i == maxNumKThs) {
+		printf("uthread_get_key ERROR: Could not find current thread\n");
+		return (void *)-1;
+	}
+
+	if (kthInfo[i].key->refKey != key) {
+		printf("uthread_get_key ERROR: Incorrect Key\n");
+		return (void *)-2;
+	}
+
+	return kthInfo[i].key->value;
+}
+
+
+/* HELPER FUNCTIONS */
 
 /* compare times of two records */
 int compareTime(struct timeval v1, struct timeval v2)
@@ -113,24 +217,33 @@ void enQueue(struct thread_info *record)
 	}
 }
 
+/*
+	frees all the allocated values for a thread_info object
+*/
 void thread_info_destroy(struct thread_info * th) {
 	free(th->ucp->uc_stack.ss_sp);
 	free(th->ucp);
+	free(th->key);
 	free(th);
 }
 
+/* THREAD FUNCTIONS */
+
 int uthread_init(int maxNumKernelThreads)
 {
+	/* Check that the number of threads asked for is within the correct range */
 	if(maxNumKernelThreads > 10 || maxNumKernelThreads < 0) {
-			printf("invalid number of max threads\n");
+		printf("invalid number of max threads\n");
 		return -1;
 	}
 
 	int i;
 
-	//generate a random offset between 0-1023 so that the size of the stack
-	//differs between runs. This is done to amke it more difficult to
-	//manipulate exact memory in other threads
+	/*
+		generate a random offset between 0-1023 so that the size of the stack
+		differs between runs. This is done to amke it more difficult to
+		manipulate exact memory in other threads
+	*/
 	int seed = time(NULL);
     srand(seed);
 	offset = rand() % 1024;
@@ -179,8 +292,7 @@ int uthread_create(void (*func)())
 	/* current number of threads is less than max number of threads */
 	if(curNumKThs < maxNumKThs) {
 
-		//A new kernel thread can be started immediately
-
+		/* A new kernel thread can be started immediately */
 		void *child_stack;
 		child_stack=(void *)malloc(STACK_SIZE_BASE + offset);
 
@@ -234,12 +346,11 @@ int uthread_create(void (*func)())
 		/* set the thread id */
 		kthInfo[i].kthID = tid;
 
-		printf("i=%d, tid=%d\n", i, tid);
-
  		/* set start values for the thread */
 		gettimeofday(&kthInfo[i].startTime, NULL);
 		kthInfo[i].runTime = 0;
 		kthInfo[i].state = 1;
+		kthInfo[i].key = copykey(refKeys[0]);
 
 		/* increment current number of threads */
 		curNumKThs++;
@@ -281,6 +392,7 @@ int uthread_create(void (*func)())
 		/* set read of thread info values */
 		th->next = NULL;
 		th->runTime = 0;
+		th->key = copykey(refKeys[0]);
 
 		/* add the thread record into the queue */
 		enQueue(th);
@@ -319,12 +431,12 @@ void uthread_exit()
 		return;
 	}
 
+	/* destroy the thread_info object of the exiting thread */
 	if(kthInfo[i].th != NULL) {
 		thread_info_destroy(kthInfo[i].th);
 	}
 
 	struct thread_info *th;
-
 	/* exit process if queue is empty */
 	if(head == NULL) {
 		sem_post(&queueMutex);
@@ -345,7 +457,7 @@ void uthread_exit()
 
 	printf("uthread_exit: exit\n");
 
-	//set the context of the picked thread as the concurrent thread (i.e., run it!)
+	/* set the context of the picked thread as the concurrent thread (i.e., run it!) */
 	setcontext(th->ucp);
 
 }
@@ -362,9 +474,6 @@ int uthread_yield()
 	/* if there is nothing to dequeue then release control and return */
 	if(head == NULL){
 		sem_post(&queueMutex);
-
-		printf("uthread_yield: exit 1\n");
-
 		return 0;
 	}
 
@@ -374,12 +483,9 @@ int uthread_yield()
 	/* get thread id of current thread from system call */
 	pid_t ttid = syscall(SYS_gettid);
 
-	printf("tid=%d\n", ttid);
-
 	/* find index of current thread */
 	for(tid = 0; tid < maxNumKThs; tid++) {
 		if(kthInfo[tid].kthID==ttid){
-			printf("tid=%d\n", tid);
 			break;
 		}
 	}
@@ -405,11 +511,13 @@ int uthread_yield()
 		return 0;
 	}
 
-	/* construct queue thread object for current thread */
-
 	/* create and allocate a thread_info object */
 	struct thread_info *th; 
 
+	/* 
+		If thread doesn't have a thread_info object make one and use that as th.
+		Otherwise, use the already created thread info object.
+	*/
 	if(kthInfo[tid].th == NULL) {
 		/* initalize and alloc space for thread info object*/
 		th = (struct thread_info *)malloc(sizeof(struct thread_info));
@@ -427,6 +535,7 @@ int uthread_yield()
 
 		/* set object's runtime */
 		th->runTime = runTime;
+		th->key = kthInfo[tid].key;
 		kthInfo[tid].th = th;
 	} else {
 		th = kthInfo[tid].th;
@@ -441,6 +550,7 @@ int uthread_yield()
 	th1=deQueue();
 	kthInfo[tid].runTime=th1->runTime;
 	kthInfo[tid].th = th1;
+	kthInfo[tid].key = th1->key;
 	gettimeofday(&kthInfo[tid].startTime, NULL);
 
 	/* release control so waiting thread can execute */

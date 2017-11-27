@@ -1,4 +1,10 @@
-//test function that creates an int i and sees if another thread modifys it
+/*
+	This is a sipmle program that shows that bufferoverflow cannot be done using uThread.
+*/
+
+/*
+	test function that creates an int i and sees if another thread modifys it
+*/
 void th4()
 {
 	printf("Thread 4: run.\n");
@@ -11,7 +17,9 @@ void th4()
 	uthread_exit();
 }
 
-//function that attempts to modify an integer in another thread
+/*
+	function that attempts to modify an integer in another thread
+*/
 void th5()
 {
 	printf("Thread 5: run.\n");

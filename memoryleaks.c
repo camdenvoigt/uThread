@@ -3,6 +3,11 @@
 
 #include "uThread.h"
 
+/*
+	This is a very simple program to demonstrate the uThread does not leak memory.
+	To see this run this program in valgrind. 
+*/
+
 void th1() {
 	printf("Thread 1: enter\n");
 	for(int i = 0; i < 3; i++) {

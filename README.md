@@ -8,10 +8,10 @@ A simple user thread library written in C
   uThread.h
   
   example main files:
-    main.c
-    memoryleaks.c
-    bufferoverflow.c
-    threadsafe.c
+   - main.c
+   - memoryleaks.c
+   - bufferoverflow.c
+   - threadsafe.c
   
 ## INSTRUCTIONS:
 

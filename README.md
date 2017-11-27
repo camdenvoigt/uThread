@@ -1,7 +1,7 @@
 # uThread
 A simple user thread library written in C
 
-CONTENTS:
+## CONTENTS:
   
   Makefile
   uThread.c
@@ -13,7 +13,7 @@ CONTENTS:
     bufferoverflow.c
     threadsafe.c
   
-INSTRUCTIONS:
+## INSTRUCTIONS:
 
 run make _____ where the space is replaced with the name of the main file you wish to compile.
 Afterwords run my typing ./______
@@ -22,7 +22,7 @@ run make clean to remove executables and object files.
 
 refer to uthread.h comments for particular instructions for using the uThread methods.
 
-CHANGES:
+## CHANGES:
 - Created a .h file
 - Documented uThread methods
 - Freed uThread allocated memory
@@ -32,7 +32,7 @@ CHANGES:
 - Implemented thread specific variable feature
 - Created example main files to showcase changes.
 
-ROOM FOR IMPROVEMENT:
+## ROOM FOR IMPROVEMENT:
 - Further pthread functionality mirroring such as:
   - mutexs
   - conditional variables
